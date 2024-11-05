@@ -5,10 +5,10 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_SECRET_KEY
+cloudinary.config({ 
+    cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME, 
+    api_key:process.env.CLOUDINARY_API_KEY , 
+    api_secret: process.env.CLOUDINARY_SECRET_KEY // Click 'View API Keys' above to copy your API secret
 });
 
 interface CloudinaryUploadResult {
@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
         });
     }
 
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_SECRET_KEY) {
+    // Check for missing Cloudinary API keys
+    if (!process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_SECRET_KEY) {
         return NextResponse.json({
             error: "Cloudinary API keys are not set."
         }, {
@@ -51,27 +52,44 @@ export async function POST(request: NextRequest) {
             });
         }
 
+        // Validate input fields (title, description, etc.)
+        if (!title || !description) {
+            return NextResponse.json({
+                error: "Title and description are required."
+            }, {
+                status: 400
+            });
+        }
+
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
 
+        // Upload video to Cloudinary
         const result = await new Promise<CloudinaryUploadResult>((resolve, reject) => {
             const streamUpload = cloudinary.uploader.upload_stream({
                 folder: "video-uploads", 
                 resource_type: "video",
                 transformation: [
                     {
-                        quality: "auto",
+                        quality: "50",
                         fetch_format: "mp4",
                     }
                 ]
             }, (error, result) => {
-                if (error) reject(error);
-                else resolve(result as CloudinaryUploadResult);
+                if (error) {
+                    console.error("Cloudinary upload error:", error);
+                    reject(error);
+                } else {
+                    resolve(result as CloudinaryUploadResult);
+                }
             });
 
             streamUpload.end(buffer);
         });
 
+        console.log(result);
+
+        // Save video details in Prisma database
         const videos = await prisma.video.create({
             data: {
                 title,
@@ -91,7 +109,7 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error) {
-        console.error(error);
+        console.error("Error uploading video:", error);
         return NextResponse.json({
             error: "Failed to upload video."
         }, {
